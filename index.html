@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>맞춤형 뉴스레터 자동 검수 에이전트 — MVP</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230;
+    --line:#283044; --text:#e6edf3; --muted:#8b949e;
+    --blue:#6366f1; --purple:#a855f7; --cyan:#22d3ee; --orange:#f59e0b;
+    --green:#10b981; --red:#ef4444;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:"Segoe UI","Malgun Gothic",system-ui,sans-serif;
+    padding:32px;line-height:1.5;
+  }
+  .wrap{max-width:1100px;margin:0 auto}
+  .kicker{color:var(--cyan);letter-spacing:3px;font-size:13px;font-weight:700}
+  h1{font-size:34px;margin:6px 0 4px}
+  .sub{color:var(--muted);margin-bottom:28px}
+
+  /* 파이프라인 단계 표시 (작게) */
+  .steps{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:24px}
+  .step{
+    background:var(--panel);border:1px solid var(--line);border-radius:9px;
+    padding:8px 6px;text-align:center;position:relative;transition:.25s;
+    display:flex;align-items:center;justify-content:center;gap:7px;
+  }
+  .step .ico{
+    width:26px;height:26px;border-radius:50%;flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;font-size:13px;
+    background:var(--panel2);
+  }
+  .step .name{font-weight:700;font-size:12px;line-height:1.1}
+  .step .desc{display:none}
+  .step.active{border-color:var(--cyan);box-shadow:0 0 0 2px rgba(34,211,238,.25)}
+  .step.active .ico{background:var(--cyan);color:#06222b}
+  .step.done .ico{background:var(--green);color:#04261b}
+  .step.fail .ico{background:var(--red);color:#2b0606}
+
+  /* 탭 */
+  .tabs{display:flex;gap:8px;margin-bottom:0;border-bottom:1px solid var(--line)}
+  .tab{
+    background:transparent;color:var(--muted);border:1px solid transparent;
+    border-bottom:none;border-radius:10px 10px 0 0;padding:14px 26px;font-size:16px;
+  }
+  .tab:hover{color:var(--text)}
+  .tab.active{
+    color:var(--cyan);background:var(--panel);
+    border-color:var(--line);position:relative;top:1px;
+  }
+  .tab-panel{margin-top:20px}
+  .count{
+    display:inline-block;min-width:18px;padding:0 6px;margin-left:4px;border-radius:10px;
+    background:var(--blue);color:#fff;font-size:11px;line-height:18px;text-align:center;vertical-align:middle;
+  }
+  .btn-clear{background:var(--panel2);border:1px solid var(--line);color:var(--muted);padding:8px 14px;font-size:13px}
+  .btn-clear:hover{color:var(--red);border-color:var(--red)}
+  /* 기록 항목 */
+  .hist-item{
+    display:flex;align-items:center;gap:14px;padding:14px 16px;margin-bottom:10px;
+    background:var(--panel2);border:1px solid var(--line);border-radius:10px;cursor:pointer;transition:.15s;
+  }
+  .hist-item:hover{border-color:var(--cyan)}
+  .hist-item .h-kw{font-weight:700;font-size:15px;flex:1}
+  .hist-item .h-meta{color:var(--muted);font-size:12px}
+  .hist-empty{color:var(--muted);padding:24px;text-align:center}
+  /* 챗봇 */
+  .chat{
+    background:#0a0e14;border:1px solid var(--line);border-radius:12px;
+    padding:16px;height:280px;overflow:auto;display:flex;flex-direction:column;gap:10px;
+  }
+  .msg{max-width:78%;padding:11px 15px;border-radius:14px;font-size:15px;line-height:1.45;white-space:pre-wrap}
+  .msg.bot{background:var(--panel2);border:1px solid var(--line);align-self:flex-start;border-bottom-left-radius:4px}
+  .msg.user{background:var(--blue);color:#fff;align-self:flex-end;border-bottom-right-radius:4px}
+  .msg .kw-chip{display:inline-block;background:rgba(34,211,238,.18);color:var(--cyan);
+    border:1px solid var(--cyan);border-radius:20px;padding:1px 10px;margin:2px 3px 0 0;font-size:13px;font-weight:700}
+  .chat-input{display:flex;gap:10px;margin-top:14px}
+  .chat-input input{flex:1;padding:14px;font-size:16px}
+  .btn-send{background:var(--blue);padding:14px 22px;font-size:16px}
+  .chat-opt{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:var(--muted)}
+  .chat-opt input{width:60px;padding:6px}
+  .btn-report{background:var(--cyan);color:#06222b;margin-top:6px;padding:9px 16px;font-size:14px}
+  .msg b{color:var(--text)}
+  .btn-doc{background:var(--green);padding:10px 16px;font-size:14px;white-space:nowrap}
+  .btn-regen{background:var(--purple)}
+  /* 상세 보고서 렌더링 */
+  .report h3{margin:0 0 12px;font-size:20px}
+  .report h4{color:var(--cyan);font-size:15px;margin:18px 0 6px;border-left:3px solid var(--cyan);padding-left:8px}
+  .report ul{margin:6px 0;padding-left:22px}
+  .report li{margin:4px 0}
+  .report p{margin:6px 0}
+  .report blockquote{color:var(--muted);border-left:3px solid var(--line);padding-left:10px;margin:8px 0;font-size:13px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px}
+  .card h2{font-size:15px;margin:0 0 14px;color:var(--cyan)}
+  /* 사용자 입력 카드 강조 (크게) */
+  .card.input-card{padding:30px;border-color:var(--blue);box-shadow:0 0 0 1px rgba(99,102,241,.3)}
+  .card.input-card h2{font-size:20px}
+  .card.input-card label{font-size:15px;margin:20px 0 8px}
+  .card.input-card input{padding:15px;font-size:18px}
+  label{display:block;font-size:13px;color:var(--muted);margin:12px 0 6px}
+  input,textarea{
+    width:100%;background:var(--panel2);border:1px solid var(--line);
+    border-radius:8px;color:var(--text);padding:10px;font-size:14px;font-family:inherit;
+  }
+  button{
+    border:none;border-radius:8px;padding:11px 16px;font-size:14px;font-weight:700;
+    cursor:pointer;color:#fff;transition:.15s;
+  }
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .btn-primary{background:var(--blue);width:100%;margin-top:22px;padding:16px;font-size:17px}
+  .btn-approve{background:var(--green)}
+  .btn-reject{background:var(--red)}
+  .btn-row{display:flex;gap:10px;margin-top:14px}
+  .btn-row button{flex:1}
+
+  /* 로그 / 콘솔 */
+  .log{
+    background:#0a0e14;border:1px solid var(--line);border-radius:10px;
+    padding:14px;font-family:Consolas,monospace;font-size:13px;
+    height:150px;overflow:auto;white-space:pre-wrap;
+  }
+  .log .t-research{color:var(--purple)}
+  .log .t-write{color:var(--blue)}
+  .log .t-review{color:var(--cyan)}
+  .log .t-fail{color:var(--red)}
+  .log .t-ok{color:var(--green)}
+  .log .t-sys{color:var(--muted)}
+
+  .draft{
+    background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+    padding:18px;margin-top:14px;min-height:120px;font-size:14px;
+  }
+  .draft h3{margin-top:0}
+  .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700}
+  .b-wait{background:rgba(245,158,11,.18);color:var(--orange);border:1px solid var(--orange)}
+  .b-sent{background:rgba(16,185,129,.18);color:var(--green);border:1px solid var(--green)}
+  .b-loop{background:rgba(239,68,68,.18);color:var(--red);border:1px solid var(--red)}
+  .meta{color:var(--muted);font-size:12px;margin-top:8px}
+  .hidden{display:none}
+  .review-box{margin-top:14px;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--panel2)}
+  .score{font-size:22px;font-weight:800}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">SERVICE SCENARIO · MVP</div>
+  <h1>맞춤형 뉴스레터 자동 검수 에이전트</h1>
+  <div class="sub">관심 키워드 입력 → 리서치 → 작성 → 검수(품질 미달 시 작성 복귀) → 사람 승인 → 발송</div>
+
+  <!-- 6단계 파이프라인 -->
+  <div class="steps" id="steps">
+    <div class="step" data-step="0"><div class="ico">🏷️</div><div class="name">사용자 입력</div><div class="desc">관심 키워드</div></div>
+    <div class="step" data-step="1"><div class="ico">🔍</div><div class="name">리서치</div><div class="desc">자료 수집·정리</div></div>
+    <div class="step" data-step="2"><div class="ico">✏️</div><div class="name">작성</div><div class="desc">초안 작성</div></div>
+    <div class="step" data-step="3"><div class="ico">📋</div><div class="name">검수</div><div class="desc">품질·사실 검증</div></div>
+    <div class="step" data-step="4"><div class="ico">🧑‍⚖️</div><div class="name">승인 대기</div><div class="desc">사람이 검토</div></div>
+    <div class="step" data-step="5"><div class="ico">📤</div><div class="name">발송·저장</div><div class="desc">발송 후 이력</div></div>
+  </div>
+
+  <!-- 탭 -->
+  <div class="tabs">
+    <button class="tab active" id="tab-input" onclick="switchTab('input')">📝 사용자 입력</button>
+    <button class="tab" id="tab-result" onclick="switchTab('result')">📨 생성 결과</button>
+    <button class="tab" id="tab-history" onclick="switchTab('history')">📚 생성 기록 <span id="histCount" class="count">0</span></button>
+  </div>
+
+  <!-- 입력 탭 (챗봇) -->
+  <div class="tab-panel" id="panel-input">
+    <div class="card input-card">
+      <h2>💬 뉴스레터 어시스턴트</h2>
+      <div class="chat" id="chat"></div>
+      <div class="chat-input">
+        <input id="chatBox" placeholder="예: 요즘 전기차랑 배터리 소식 정리해줘"
+               onkeydown="if(event.key==='Enter') sendChat()">
+        <button class="btn-send" onclick="sendChat()">전송</button>
+      </div>
+      <div class="chat-opt">
+        최대 재작성 횟수
+        <input id="maxRev" type="number" value="2" min="1" max="5">
+        <span class="meta">· 자연어로 관심 주제를 말씀하시면 키워드를 추출해 뉴스레터를 만들어 드립니다.</span>
+      </div>
+
+      <h2 style="margin-top:24px">실행 로그</h2>
+      <div class="log" id="log"><span class="t-sys">대기 중...</span></div>
+    </div>
+  </div>
+
+  <!-- 결과 탭 -->
+  <div class="tab-panel hidden" id="panel-result">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+        <h2 style="margin:0">상세 보고서</h2>
+        <button class="btn-doc" id="docBtn" onclick="downloadDoc()" disabled>⬇ DOC 다운로드</button>
+      </div>
+      <div id="statusLine" class="meta" style="margin-top:10px">아직 생성된 초안이 없습니다. 「사용자 입력」 탭에서 생성을 시작하세요.</div>
+
+      <div class="draft report" id="draft"><span class="meta">초안이 여기에 표시됩니다.</span></div>
+
+      <div id="approvalArea" class="hidden">
+        <div class="btn-row">
+          <button class="btn-approve" onclick="approve()">✅ 승인 → 발송</button>
+          <button class="btn-reject" onclick="reject()">↩️ 반려 → 재작성</button>
+        </div>
+        <label>반려 시 수정 요청 (선택)</label>
+        <div class="btn-row">
+          <input id="feedback" placeholder="예: 더 짧고 캐주얼하게, 통계 수치 추가" style="flex:2">
+          <button class="btn-regen" onclick="reject()" style="flex:1">🔄 재생성</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 기록 탭 -->
+  <div class="tab-panel hidden" id="panel-history">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2 style="margin:0">생성 기록</h2>
+        <button class="btn-clear" onclick="clearHistory()">🗑 전체 삭제</button>
+      </div>
+      <div id="historyList" style="margin-top:16px"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ====== 상태 ======
+let state = {};
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function setStep(idx, cls){
+  document.querySelectorAll('.step').forEach(s=>{
+    if(+s.dataset.step===idx){ s.classList.remove('active','done','fail'); if(cls) s.classList.add(cls); }
+  });
+}
+function resetSteps(){ document.querySelectorAll('.step').forEach(s=>s.classList.remove('active','done','fail')); }
+function switchTab(name){
+  ['input','result','history'].forEach(n=>{
+    $('tab-'+n).classList.toggle('active', n===name);
+    $('panel-'+n).classList.toggle('hidden', n!==name);
+  });
+  if(name==='history') renderHistory();
+}
+function log(msg, cls='t-sys'){
+  const el=$('log');
+  el.innerHTML += `\n<span class="${cls}">${msg}</span>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+// ====== Mock 에이전트들 ======
+function researchAgent(keywords){
+  return `'${keywords.join(', ')}' 관련 핵심 동향 3가지\n`+
+    `1. ${keywords[0]} 시장이 빠르게 성장 중\n`+
+    `2. 신규 기술·서비스가 연이어 출시\n`+
+    `3. 사용자 관심도 전년 대비 급증`;
+}
+function writeAgent(research, keywords, revision, feedback){
+  // 1회차(피드백 없음)는 일부러 부실하게 작성 → 검수 탈락 → 복귀 루프 시연
+  if(revision===0 && !feedback){
+    return { title:`${keywords.join(' · ')} 뉴스레터`, body:'이번 주 소식입니다.' };
+  }
+  const today = new Date().toLocaleDateString('ko-KR');
+  let body =
+    `> 발행일: ${today} · 주제: ${keywords.join(', ')} · 작성: AI 작성 에이전트\n\n`+
+    `## 📌 이번 호 요약\n`+
+    `안녕하세요! 관심 키워드 **${keywords.join(', ')}** 기반 맞춤 뉴스레터입니다. `+
+    `이번 호에서는 각 주제별 최신 동향과 주목할 포인트, 그리고 향후 전망까지 상세히 정리했습니다.\n\n`;
+
+  keywords.forEach((k,i)=>{
+    body +=
+      `## ${i+1}. ${k} 상세 동향\n`+
+      `- **시장 현황**: ${k} 시장은 전년 대비 빠르게 성장하며 신규 수요가 꾸준히 유입되고 있습니다.\n`+
+      `- **핵심 기술**: ${k} 분야에서 새로운 기술과 서비스가 연이어 출시되어 경쟁이 치열해지고 있습니다.\n`+
+      `- **사용자 반응**: ${k}에 대한 관심도가 크게 증가했으며, 관련 투자도 확대되는 추세입니다.\n`+
+      `- **주요 이슈**: 규제·표준화 논의와 함께 품질·신뢰성 확보가 핵심 과제로 떠오르고 있습니다.\n`+
+      `- **향후 전망**: 향후 ${k} 분야는 지속적인 혁신과 시장 확대가 예상됩니다.\n\n`;
+  });
+
+  body +=
+    `## 🔎 함께 보면 좋은 인사이트\n`+
+    `- 주제 간 융합(예: ${keywords.join(' + ')})이 새로운 기회를 만들고 있습니다.\n`+
+    `- 글로벌 동향과 국내 시장의 시차를 함께 살펴보면 흐름을 더 잘 읽을 수 있습니다.\n\n`+
+    `## ✉️ 마무리\n`+
+    `다음 호에서 더 알찬 소식으로 찾아뵙겠습니다. 구독해 주셔서 감사합니다!`;
+
+  if(feedback) body += `\n\n> ✍️ (수정 반영: ${feedback})`;
+  return { title:`이번 주 ${keywords.join(' · ')} 뉴스레터`, body };
+}
+function reviewAgent(draft){
+  const text = draft.title + '\n' + draft.body;
+  const lengthOk = text.length > 80;
+  const hasSection = draft.body.includes('##');
+  const passed = lengthOk && hasSection;
+  const score = passed ? 90 : 40;
+  let fb;
+  if(passed) fb='구성과 분량이 적절합니다. 통과.';
+  else {
+    const r=[];
+    if(!lengthOk) r.push('내용이 너무 짧음');
+    if(!hasSection) r.push('섹션 구성 부족');
+    fb='품질 미달: '+r.join(', ')+'. 보강 필요.';
+  }
+  return { passed, score, feedback:fb };
+}
+
+// ====== 챗봇 (자연어 → 키워드) ======
+const STOP = ['뉴스레터','뉴스','소식','기사','정리','관련','대해','대한','요즘','최근','오늘',
+  '만들어줘','만들어','만들','해줘','알려줘','알려','보여줘','정리해줘','작성해줘','작성','부탁해',
+  '주제','내용','으로','로','에','대','좀','것','거','수','및','그리고','그','이','저'];
+const PARTICLE = /(이랑|랑|하고|와|과|이나|나|에서|에게|의|을|를|은|는|이|가|와의|및)$/;
+
+function extractKeywords(text){
+  const SUFFIX = /(관련|소식|뉴스|기사|동향|이야기|정보)$/;
+  let raw = text
+    .replace(/[.,!?~"'·]/g,' ')
+    .split(/\s+/)
+    .map(t=>t.replace(PARTICLE,'').replace(SUFFIX,'').trim())
+    .filter(t=>t.length>=2 && !STOP.includes(t));
+  // 중복 제거
+  const seen=new Set(), out=[];
+  for(const t of raw){ if(!seen.has(t)){ seen.add(t); out.push(t); } }
+  return out.slice(0,4); // 최대 4개
+}
+
+function addMsg(text, who, isHTML=false){
+  const el=$('chat');
+  const d=document.createElement('div');
+  d.className='msg '+who;
+  if(isHTML) d.innerHTML=text; else d.textContent=text;
+  el.appendChild(d);
+  el.scrollTop=el.scrollHeight;
+}
+
+async function sendChat(){
+  const box=$('chatBox');
+  const text=box.value.trim();
+  if(!text) return;
+  box.value='';
+  addMsg(text,'user');
+
+  const keywords = extractKeywords(text);
+  await sleep(400);
+
+  if(!keywords.length){
+    addMsg('관심 있는 주제를 조금 더 구체적으로 말씀해 주세요. 예: "AI랑 반도체 소식 만들어줘"','bot');
+    return;
+  }
+
+  const chips = keywords.map(k=>`<span class="kw-chip">${k}</span>`).join('');
+  addMsg(`알겠습니다! 다음 키워드로 뉴스레터를 만들어 드릴게요:<br>${chips}<br><br>잠시만요, 생성을 시작합니다... 🛠️`,'bot',true);
+  box.disabled=true;
+  await sleep(700);
+  await run(keywords);
+  box.disabled=false;
+}
+
+function initChat(){
+  $('chat').innerHTML='';
+  addMsg('안녕하세요! 어떤 주제의 뉴스레터를 받아보고 싶으세요?\n자연어로 편하게 말씀해 주세요. 🙂','bot');
+}
+
+// ====== 파이프라인 ======
+async function run(keywords){
+  $('log').innerHTML = '<span class="t-sys">파이프라인 시작...</span>';
+  $('approvalArea').classList.add('hidden');
+  $('reviewBox').classList.add('hidden');
+  resetSteps();
+
+  state = { keywords, maxRev:+$('maxRev').value, revision:0, feedback:'', status:'' };
+
+  // STEP 0 입력
+  setStep(0,'done');
+  log('▶ 사용자 입력: '+keywords.join(', '), 't-sys');
+  await sleep(400);
+
+  // STEP 1 리서치
+  setStep(1,'active');
+  log('[리서치] 자료 수집·정리 중...', 't-research');
+  await sleep(700);
+  state.research = researchAgent(keywords);
+  setStep(1,'done');
+
+  await writeReviewLoop();
+}
+
+async function writeReviewLoop(){
+  while(true){
+    // STEP 2 작성
+    setStep(2,'active');
+    log(`[작성] 초안 작성 중 (수정 ${state.revision}회차)`+
+        (state.feedback?` / 피드백: ${state.feedback}`:''), 't-write');
+    await sleep(700);
+    state.draft = writeAgent(state.research, state.keywords, state.revision, state.feedback);
+    state.feedback='';
+    setStep(2,'done');
+
+    // STEP 3 검수
+    setStep(3,'active');
+    log('[검수] 품질·사실 검증 중...', 't-review');
+    await sleep(700);
+    state.review = reviewAgent(state.draft);
+    state.revision++;
+
+    renderDraft();
+
+    if(state.review.passed){
+      setStep(3,'done');
+      log(`[검수] 통과 ✓ (점수 ${state.review.score})`, 't-ok');
+      break;
+    }
+    // 품질 미달 → 작성 복귀 (Conditional Edge)
+    setStep(3,'fail');
+    log(`[검수] 품질 미달 ✗ (점수 ${state.review.score}) → 작성 단계로 복귀`, 't-fail');
+    await sleep(600);
+
+    if(state.revision >= state.maxRev){
+      log(`[시스템] 최대 재작성(${state.maxRev}회) 초과 → 사람이 직접 판단하도록 승인 대기로 이동`, 't-sys');
+      break;
+    }
+  }
+
+  // STEP 4 승인 대기 (Human-in-the-loop / interrupt)
+  setStep(4,'active');
+  state.status='awaiting_approval';
+  log('[시스템] 그래프 실행 일시 중단 — 사람 승인 대기 (interrupt_before)', 't-sys');
+  $('approvalArea').classList.remove('hidden');
+  renderStatus();
+  // 주요 내용을 채팅창에 요약해서 보여주고 [보고서 보기] 버튼 제공
+  postReportPreview();
+}
+
+// 채팅창에 초안 주요 내용 요약 + [보고서 보기] 버튼 출력
+function postReportPreview(){
+  const d = state.draft;
+  // 본문에서 섹션 제목과 핵심 줄을 추려 요약
+  const points = d.body.split('\n')
+    .filter(l => l.trim() && !l.startsWith('##') && !l.startsWith('>'))
+    .slice(0,4)
+    .map(l => '• '+l.trim())
+    .join('<br>');
+  const html =
+    `📰 <b>${d.title}</b><br><br>`+
+    `<b>검수 점수</b> ${state.review.score}/100 · 재작성 ${state.revision}회<br>`+
+    `<b>주요 내용</b><br>${points}<br><br>`+
+    `<button class="btn-report" onclick="switchTab('result')">📄 보고서 보기</button>`;
+  addMsg(html,'bot',true);
+}
+
+async function approve(){
+  $('approvalArea').classList.add('hidden');
+  setStep(4,'done');
+  // STEP 5 발송
+  setStep(5,'active');
+  log('[발송] 사람 승인 완료 → 뉴스레터 발송 및 이력 저장', 't-ok');
+  await sleep(700);
+  state.status='sent';
+  setStep(5,'done');
+  log('[발송] 완료 ✓', 't-ok');
+  renderStatus();
+  saveHistory();                 // 발송 완료 시 기록 저장
+  addMsg(`✅ "${state.keywords.join(', ')}" 뉴스레터를 발송했어요! 다른 주제도 말씀해 주세요.`,'bot');
+}
+
+async function reject(){
+  state.feedback = $('feedback').value.trim();
+  $('feedback').value='';
+  $('approvalArea').classList.add('hidden');
+  setStep(4,'');
+  log('[반려] 사람이 반려 — 피드백 반영하여 작성 단계로 복귀'+
+      (state.feedback?`: ${state.feedback}`:''), 't-fail');
+  await sleep(500);
+  await writeReviewLoop();
+}
+
+// ====== 렌더링 ======
+let currentReport = null;   // DOC 다운로드 대상 보고서 {title, body, keywords, date}
+
+// 간단 마크다운 → HTML (상세 보고서용)
+function mdToHtml(text){
+  const lines = text.split('\n');
+  let html='', inList=false;
+  const closeList=()=>{ if(inList){ html+='</ul>'; inList=false; } };
+  for(let line of lines){
+    line = line.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+    if(line.startsWith('## ')){ closeList(); html+=`<h4>${line.slice(3)}</h4>`; }
+    else if(line.startsWith('> ')){ closeList(); html+=`<blockquote>${line.slice(2)}</blockquote>`; }
+    else if(line.startsWith('- ')){ if(!inList){ html+='<ul>'; inList=true; } html+=`<li>${line.slice(2)}</li>`; }
+    else if(line.trim()===''){ closeList(); html+='<br>'; }
+    else { closeList(); html+=`<p>${line}</p>`; }
+  }
+  closeList();
+  return html;
+}
+
+function renderDraft(){
+  currentReport = {
+    title: state.draft.title, body: state.draft.body,
+    keywords: state.keywords, date: new Date().toLocaleString('ko-KR'),
+  };
+  $('draft').innerHTML = `<h3>${state.draft.title}</h3>` + mdToHtml(state.draft.body);
+  $('docBtn').disabled = false;
+}
+function renderStatus(){
+  let badge='';
+  if(state.status==='awaiting_approval') badge='<span class="badge b-wait">⏸ 승인 대기 중</span>';
+  else if(state.status==='sent') badge='<span class="badge b-sent">✅ 발송 완료</span>';
+  $('statusLine').innerHTML =
+    badge + ` &nbsp; 키워드: ${state.keywords.join(', ')} · 재작성 ${state.revision}회`;
+}
+
+// ====== 생성 기록 (localStorage) ======
+const HKEY = 'newsletter_history';
+function loadHistory(){
+  try{ return JSON.parse(localStorage.getItem(HKEY) || '[]'); }
+  catch(e){ return []; }
+}
+function saveHistory(){
+  const list = loadHistory();
+  list.unshift({
+    id: Date.now(),
+    date: new Date().toLocaleString('ko-KR'),
+    keywords: state.keywords,
+    revision: state.revision,
+    score: state.review ? state.review.score : null,
+    title: state.draft.title,
+    body: state.draft.body,
+  });
+  localStorage.setItem(HKEY, JSON.stringify(list.slice(0, 50))); // 최근 50건 유지
+  updateHistCount();
+}
+function updateHistCount(){
+  $('histCount').textContent = loadHistory().length;
+}
+function renderHistory(){
+  const list = loadHistory();
+  const el = $('historyList');
+  if(!list.length){
+    el.innerHTML = '<div class="hist-empty">아직 발송된 뉴스레터가 없습니다.</div>';
+    return;
+  }
+  el.innerHTML = list.map(r=>`
+    <div class="hist-item" onclick="viewHistory(${r.id})">
+      <div class="h-kw">${r.keywords.join(', ')}</div>
+      <div class="h-meta">
+        <span class="badge b-sent">발송</span>
+        &nbsp; 점수 ${r.score ?? '-'} · 재작성 ${r.revision}회 &nbsp; ${r.date}
+      </div>
+    </div>`).join('');
+}
+function viewHistory(id){
+  const r = loadHistory().find(x=>x.id===id);
+  if(!r) return;
+  currentReport = { title:r.title, body:r.body, keywords:r.keywords, date:r.date };
+  $('draft').innerHTML = `<h3>${r.title}</h3>` + mdToHtml(r.body);
+  $('docBtn').disabled = false;
+  $('approvalArea').classList.add('hidden');
+  $('statusLine').innerHTML =
+    `<span class="badge b-sent">✅ 발송 완료</span> &nbsp; 키워드: ${r.keywords.join(', ')} · ${r.date}`;
+  switchTab('result');
+}
+function clearHistory(){
+  if(!confirm('생성 기록을 모두 삭제할까요?')) return;
+  localStorage.removeItem(HKEY);
+  updateHistCount();
+  renderHistory();
+}
+
+// ====== DOC(워드) 다운로드 ======
+function downloadDoc(){
+  if(!currentReport){ alert('다운로드할 보고서가 없습니다.'); return; }
+  const r = currentReport;
+  const bodyHtml = mdToHtml(r.body);
+  const doc =
+    `<html xmlns:o='urn:schemas-microsoft-com:office:office' `+
+    `xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>`+
+    `<head><meta charset='utf-8'><title>${r.title}</title>`+
+    `<style>body{font-family:'맑은 고딕',sans-serif;font-size:11pt;line-height:1.6;color:#222}`+
+    `h1{font-size:20pt}h4{font-size:13pt;color:#1a5fb4;margin:14pt 0 4pt}`+
+    `blockquote{color:#666;border-left:3px solid #ccc;padding-left:8pt;margin:6pt 0}`+
+    `ul{margin:4pt 0}li{margin:2pt 0}</style></head><body>`+
+    `<h1>${r.title}</h1>`+
+    `<p style='color:#888'>키워드: ${r.keywords.join(', ')} · 생성일: ${r.date}</p><hr>`+
+    bodyHtml +
+    `</body></html>`;
+  const blob = new Blob(['﻿'+doc], {type:'application/msword'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const fname = `뉴스레터_${r.keywords.join('_')}.doc`;
+  a.href = url; a.download = fname;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+updateHistCount();  // 페이지 로드 시 기록 수 표시
+initChat();         // 챗봇 초기 인사
+</script>
+</body>
+</html>
