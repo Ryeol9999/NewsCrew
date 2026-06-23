@@ -1,30 +1,26 @@
-"""맞춤형 뉴스레터 에이전트 — 학습용 심플 버전 (뼈대 + 빈칸).
+"""맞춤형 뉴스레터 에이전트 — 화면(Streamlit) · 학습용 심플 버전.
 
-이 파일은 초보자가 코드를 한 눈에 이해하고, 복잡한 부분은 직접
-채워 넣으며 공부할 수 있도록 만든 "뼈대(skeleton)" 입니다.
+이 파일은 '화면'만 담당합니다. 실제 일(리서치/작성/검수/발송)은
+app/graph.py 의 그래프가 합니다. 여기서는 그 그래프를 호출하고
+결과를 보여 줄 뿐입니다.
 
   - 기능마다 함수 1개로 나눠 놓았습니다. (위에서 아래로 읽으면 흐름이 보입니다)
-  - 복잡한 로직은 비워 두고  # TODO: 여기 채우기  주석을 달았습니다.
-  - 빈칸은 지금도 "가짜 임시 결과"를 돌려주므로, 채우기 전에도
-    실행하면 화면이 정상 동작합니다.
+  - 더 똑똑하게 만들 부분은  # TODO: 여기 채우기  주석을 달아 두었습니다.
 
 실행 방법:
-    streamlit run main_page_simple.py
-
-다 만든 정식 버전이 궁금하면 옆 파일 main_page.py 를 참고하세요.
+    streamlit run main_page.py
 """
 from __future__ import annotations
 
-import uuid                      # 매번 다른 ID(thread_id) 만들 때 사용
-from datetime import datetime    # 현재 시각/날짜
+import uuid                      # 매번 다른 작업 ID(thread_id) 만들 때 사용
 
 import streamlit as st
+
+from app.graph import graph      # 실제 일을 하는 AI 그래프(백엔드)
 
 
 # ==========================================================================
 # 1) 페이지 기본 설정 + 화면 꾸미기(CSS)
-#    - 화면 제목, 아이콘, 레이아웃을 정합니다.
-#    - 색/모양을 바꾸고 싶으면 inject_css() 안의 CSS만 고치면 됩니다.
 # ==========================================================================
 def setup_page():
     st.set_page_config(
@@ -52,7 +48,7 @@ def inject_css():
 # ==========================================================================
 # 2) 세션 상태 초기화
 #    - Streamlit 은 화면을 새로 그릴 때마다 코드를 처음부터 다시 실행합니다.
-#    - 그래도 값이 유지되도록 st.session_state 라는 "기억 상자"에 담아 둡니다.
+#    - 그래도 값이 유지되도록 st.session_state 라는 '기억 상자'에 담아 둡니다.
 #    - setdefault: 값이 없을 때만 처음 한 번 넣어 줍니다.
 # ==========================================================================
 def init_state():
@@ -66,8 +62,7 @@ def init_state():
 
 
 # ==========================================================================
-# 3) 작은 도우미 함수들  ← 여기가 "복잡해서 비워 둔" 부분입니다.
-#    지금은 간단/가짜로 동작하고, TODO 부분을 직접 채우면 진짜가 됩니다.
+# 3) 작은 도우미 함수들
 # ==========================================================================
 def extract_keywords(text: str) -> list[str]:
     """사용자 문장에서 핵심 키워드만 뽑아냅니다.
@@ -81,7 +76,7 @@ def extract_keywords(text: str) -> list[str]:
 
 
 def md_to_html(text: str) -> str:
-    """마크다운 글(# 제목, - 목록 등)을 HTML로 바꿔 화면에 예쁘게 보여줍니다.
+    """마크다운 글(# 제목, - 목록 등)을 화면에 보여줄 HTML로 바꿉니다.
 
     지금은 '줄바꿈만' 처리하는 가장 단순한 버전입니다.
     """
@@ -99,51 +94,57 @@ def draft_title(draft: str) -> str:
 
 
 # ==========================================================================
-# 4) AI 백엔드 연동  ← 여기가 가장 복잡한 부분이라 "가짜"로 비워 뒀습니다.
-#    실제로는 app/graph.py 의 그래프를 호출해야 합니다.
-#    지금은 화면 흐름을 확인할 수 있도록 가짜 결과를 돌려줍니다.
+# 4) AI 백엔드(app/graph.py) 연동
+#    여기 3개 함수가 '화면'과 'AI 그래프'를 이어 주는 다리입니다.
 # ==========================================================================
-def run_pipeline(keywords: list[str], max_rev: int) -> dict:
-    """키워드를 받아 → 리서치 → 작성 → 검수까지 실행하고 결과를 돌려줍니다."""
-    # TODO: 여기 채우기 —— 진짜 AI 그래프 호출.
-    #   from app.graph import graph
-    #   cfg = {"configurable": {"thread_id": thread_id}}
-    #   graph.invoke({"keywords": keywords, ...}, cfg)
-    #   그리고 graph.get_state(cfg).values 로 결과를 꺼내 아래 형태로 만들면 됩니다.
+def _config(thread_id: str) -> dict:
+    """그래프에게 '어느 작업(thread)을 이어서 할지' 알려주는 설정값."""
+    return {"configurable": {"thread_id": thread_id}}
 
-    # --- 아래는 화면 테스트용 "가짜 결과" ---
-    fake_draft = (
-        f"# {', '.join(keywords)} 주간 뉴스레터\n"
-        "## 핵심 요약\n"
-        "- (예시) 첫 번째 소식입니다.\n"
-        "- (예시) 두 번째 소식입니다.\n"
-    )
+
+def _read_state(thread_id: str) -> dict:
+    """그래프에 저장된 현재 상태를 꺼내, 화면이 쓰기 편한 형태로 정리합니다."""
+    state = graph.get_state(_config(thread_id))
+    v = state.values
     return {
-        "thread_id": uuid.uuid4().hex[:12],
-        "status": "awaiting_approval",   # 승인 대기 상태
-        "keywords": keywords,
-        "draft": fake_draft,
-        "review": {"score": 90, "passed": True, "feedback": "예시 검수 코멘트"},
-        "revision_count": 0,
-        "awaiting_approval": True,
+        "thread_id": thread_id,
+        "status": v.get("status"),
+        "keywords": v.get("keywords", []),
+        "draft": v.get("draft", ""),
+        "review": v.get("review", {}),
+        "revision_count": v.get("revision_count", 0),
+        # 'send' 직전에서 멈춰 있으면 = 사람 승인을 기다리는 중
+        "awaiting_approval": "send" in state.next,
     }
 
 
+def run_pipeline(keywords: list[str], max_rev: int) -> dict:
+    """키워드로 그래프를 처음부터 실행 → 리서치·작성·검수 후 '승인 대기'에서 멈춤."""
+    thread_id = uuid.uuid4().hex[:12]              # 이번 작업의 새 ID
+    graph.invoke(
+        {"keywords": keywords, "revision_count": 0,
+         "max_revisions": max_rev, "status": "researching"},
+        _config(thread_id),
+    )
+    return _read_state(thread_id)
+
+
 def approve(thread_id: str) -> dict:
-    """사람이 '승인'을 누르면 → 발송 단계로 넘어갑니다."""
-    # TODO: 여기 채우기 —— graph.invoke(None, cfg) 로 멈춘 지점부터 재개.
-    snap = st.session_state.snap
-    snap["status"] = "sent"             # 가짜: 그냥 발송 완료로 표시
-    snap["awaiting_approval"] = False
-    return snap
+    """'승인' → 멈춰 있던 지점부터 재개해서 발송까지 진행."""
+    graph.invoke(None, _config(thread_id))         # None = '이어서 진행'
+    return _read_state(thread_id)
 
 
 def reject(thread_id: str, feedback: str) -> dict:
-    """사람이 '반려'를 누르면 → 피드백을 반영해 다시 작성합니다."""
-    # TODO: 여기 채우기 —— graph.update_state 로 피드백 넣고 다시 invoke.
-    snap = st.session_state.snap
-    snap["revision_count"] += 1         # 가짜: 재작성 횟수만 +1
-    return snap
+    """'반려' → 피드백을 그래프에 넣고 작성 단계부터 다시 진행."""
+    cfg = _config(thread_id)
+    graph.update_state(
+        cfg,
+        {"human_feedback": feedback, "status": "writing"},
+        as_node="research",   # research→write 길로 작성 단계 재진입
+    )
+    graph.invoke(None, cfg)
+    return _read_state(thread_id)
 
 
 # ==========================================================================
@@ -188,10 +189,11 @@ def handle_submit(prompt: str):
     # 4. 결과 저장 + AI 답변 추가
     st.session_state.thread_id = snap["thread_id"]
     st.session_state.snap = snap
+    score = snap.get("review", {}).get("score", "-")
     st.session_state.messages.append({
         "role": "assistant",
         "content": (f"'{', '.join(keywords)}' 뉴스레터를 만들었어요!<br>"
-                    f"📰 <b>{draft_title(snap['draft'])}</b><br>"
+                    f"📰 <b>{draft_title(snap['draft'])}</b> · 검수 {score}점<br>"
                     "왼쪽 메뉴 '생성 결과'에서 확인 후 승인/반려해 주세요."),
     })
 
@@ -211,9 +213,14 @@ def page_result():
     st.write(f"상태: **{snap['status']}** · 재작성 {snap['revision_count']}회")
     st.markdown(md_to_html(snap["draft"]), unsafe_allow_html=True)
 
+    # 검수 코멘트가 있으면 함께 표시
+    review = snap.get("review", {})
+    if review.get("feedback"):
+        st.caption(f"🧾 검수 코멘트: {review['feedback']} (점수 {review.get('score')})")
+
     # (2) 아직 승인 대기 중이면 → 승인 / 반려 버튼
-    if snap.get("awaiting_approval"):
-        feedback = st.text_input("반려 시 수정 요청(선택)", placeholder="예: 더 짧게")
+    if snap.get("awaiting_approval") and snap["status"] != "sent":
+        feedback = st.text_input("반려 시 수정 요청(선택)", placeholder="예: 더 짧고 캐주얼하게")
         c1, c2 = st.columns(2)
 
         if c1.button("✅ 승인 → 발송", use_container_width=True):
@@ -230,7 +237,7 @@ def page_result():
 
 # ==========================================================================
 # 7) 사이드바(왼쪽 메뉴) + 페이지 전환
-#    - 메뉴를 추가하려면 PAGES 리스트에 (이름, 함수) 한 줄만 더하면 됩니다.
+#    - 메뉴를 추가하려면 PAGES 에 ("이름": 함수) 한 줄만 더하면 됩니다.
 # ==========================================================================
 PAGES = {
     "📝 사용자 입력": page_input,
@@ -245,6 +252,7 @@ def render_sidebar() -> str:
         st.session_state.max_rev = st.number_input(
             "최대 재작성 횟수", min_value=1, max_value=5,
             value=st.session_state.max_rev,
+            help="검수에서 품질 미달 시 작성 단계로 되돌아가는 최대 횟수",
         )
         choice = st.radio("메뉴", list(PAGES.keys()))
     return choice
